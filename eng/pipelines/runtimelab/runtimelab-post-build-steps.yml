@@ -27,16 +27,21 @@ steps:
         displayName: Build host packages
 
   # Build coreclr native test output
-  - ${{ if eq(parameters.platform, 'browser_wasm_win') }}:
+  - ${{ if in(parameters.platform, 'browser_wasm_win', 'wasi_wasm_win') }}:
     - script: |
+        set DEBUG_DUMP_DIR=$(Build.ArtifactStagingDirectory)\dumps
+        mkdir %DEBUG_DUMP_DIR%
         call $(Build.SourcesDirectory)\wasm-tools\emsdk\emsdk_env
-        $(Build.SourcesDirectory)/src/tests/build$(scriptExt) nativeaot $(buildConfigUpper) ${{ parameters.archType }} tree nativeaot
+        $(Build.SourcesDirectory)/src/tests/build$(scriptExt) nativeaot $(buildConfigUpper) ${{ parameters.archType }} ${{ parameters.osGroup }} tree nativeaot
       displayName: Build WebAssembly tests
-  - ${{ elseif eq(parameters.platform, 'wasi_wasm_win') }}:
-    - script: |
-        call $(Build.SourcesDirectory)\wasm-tools\emsdk\emsdk_env
-        $(Build.SourcesDirectory)/src/tests/build$(scriptExt) nativeaot $(buildConfigUpper) ${{ parameters.archType }} wasi tree nativeaot
-      displayName: Build WebAssembly tests
+
+    - publish: $(Build.ArtifactStagingDirectory)\dumps
+      artifact: DumpsWindows
+      condition: failed()
+
+    - publish: $(Build.SourcesDirectory)\artifacts\bin\coreclr\windows.x64.$(buildConfigUpper)\PDB
+      artifact: DumpsWindowsSymbols
+      condition: failed()
 
   - ${{ elseif eq(parameters.osGroup, 'windows') }}:
     - script: $(Build.SourcesDirectory)/src/tests/build$(scriptExt) nativeaot $(buildConfigUpper) ${{ parameters.archType }} ${{ parameters.testFilter }} /p:NativeAotMultimodule=true /p:LibrariesConfiguration=${{ parameters.librariesConfiguration }}
