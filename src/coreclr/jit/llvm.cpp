@@ -3,6 +3,7 @@
 
 #include "jitpch.h"
 #include "llvm.h"
+#include "minidumpapiset.h"
 
 #pragma warning (disable: 4459)
 #include "llvm/Bitcode/BitcodeWriter.h"
@@ -114,6 +115,56 @@ Llvm::Llvm(Compiler* compiler)
 #ifdef HOST_WINDOWS
     // Disable popups for CRT asserts (which LLVM uses).
     auto dbgBreakHook = [](int reportType, char* message, int* returnValue) -> int {
+        const char* dumpDir = getenv("DEBUG_DUMP_DIR");
+        assert(dumpDir != nullptr);
+
+        DWORD pid = GetCurrentProcessId();
+        std::string dumpPath = (Twine(dumpDir) + "\\" + "dump." + Twine(pid) + ".dmp").str();
+
+        STARTUPINFO pwshStart;
+        memset(&pwshStart, 0, sizeof(pwshStart));
+        pwshStart.cb = sizeof(pwshStart);
+        PROCESS_INFORMATION pwshInfo;
+        memset(&pwshInfo, 0, sizeof(pwshInfo));
+
+        WCHAR cmd[1024]{};
+        swprintf(cmd, _countof(cmd), L"powershell.exe -nop -c rundll32.exe C:\\Windows\\System32\\comsvcs.dll, MiniDump %u %S full", pid, dumpPath.c_str());
+        printf("Executing: '%S'\n", cmd);
+
+        int h = CreateProcessW(NULL, cmd, NULL, NULL, false, 0, NULL, NULL, &pwshStart, &pwshInfo);
+        if (h == 0)
+        {
+            wchar_t errorMsg[256]{};
+            FormatMessageW(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, GetLastError(),
+                           MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT), errorMsg, _countof(errorMsg), NULL);
+            printf("CreateProcess failed with '%s'\n", errorMsg);
+            return FALSE;
+        }
+
+        // Wait for 60 seconds for the dumping to finish.
+        for (unsigned i = 0; i < 60; i++)
+        {
+            WIN32_FILE_ATTRIBUTE_DATA fad;
+            if (GetFileAttributesExA(dumpPath.c_str(), GetFileExInfoStandard, &fad))
+            {
+                LARGE_INTEGER size;
+                size.HighPart = fad.nFileSizeHigh;
+                size.LowPart = fad.nFileSizeLow;
+
+                printf("Waiting %u s, dump size: %lf MB\n", i, (double)size.QuadPart / 1024 / 1024);
+            }
+            else
+            {
+                printf("Waiting: %u s, failed to get current dump size...\n", i);
+            }
+
+            Sleep(1000);
+        }
+
+        // Close process and thread handles.
+        CloseHandle(pwshInfo.hProcess);
+        CloseHandle(pwshInfo.hThread);
+
         if (IsDebuggerPresent())
         {
             DebugBreak();

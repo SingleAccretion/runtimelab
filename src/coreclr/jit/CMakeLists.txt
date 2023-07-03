@@ -590,6 +590,7 @@ else()
        shlwapi.lib
        bcrypt.lib
        crypt32.lib
+       Dbghelp.lib
        RuntimeObject.lib
        coreclrminipal
     )
